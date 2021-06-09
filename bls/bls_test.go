@@ -87,6 +87,53 @@ func testBatchVerify(t *testing.T, composite, cip22 bool) {
 	}
 }
 
+func TestStrictBatchVerify(t *testing.T) {
+	InitBLSCrypto()
+	batchSize := 10
+
+	message := []byte("message")
+	extraData := []byte("extra data")
+
+	publicKeys := make([]*PublicKey, batchSize)
+	signatures := make([]*Signature, batchSize)
+
+	for i := 0; i < batchSize; i++ {
+		sk, err := GeneratePrivateKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer sk.Destroy()
+
+		sig, err := sk.SignMessage(message, extraData, true, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		signatures[i] = sig
+
+		pk, _ := sk.ToPublic()
+		publicKeys[i] = pk
+	}
+
+	result := BatchVerifyStrict(message, extraData, publicKeys, signatures, true, true)
+
+	if result != nil {
+		t.Errorf("Batch verification failed: %v", result)
+	}
+
+	wrongMsgKey, _ := GeneratePrivateKey()
+	defer wrongMsgKey.Destroy()
+	wrongMsgPublic, _ := wrongMsgKey.ToPublic()
+	wrongMsgSig, _ := wrongMsgKey.SignMessage([]byte("wrong message"), extraData, true, true)
+	publicKeys = append(publicKeys, wrongMsgPublic)
+	signatures = append(signatures, wrongMsgSig)
+
+	result = BatchVerifyStrict(message, extraData, publicKeys, signatures, true, true)
+
+	if result == nil {
+		t.Error("Batch verification succeeded when it should have failed")
+	}
+}
+
 func TestAggregatedSig(t *testing.T) {
 	InitBLSCrypto()
 	privateKey, _ := GeneratePrivateKey()
@@ -94,7 +141,7 @@ func TestAggregatedSig(t *testing.T) {
 	publicKey, _ := privateKey.ToPublic()
 	message := []byte("test")
 	extraData := []byte("extra")
-	for _, cip22 := range []bool{ false, true } {
+	for _, cip22 := range []bool{false, true} {
 		signature, _ := privateKey.SignMessage(message, extraData, true, cip22)
 		err := publicKey.VerifySignature(message, extraData, signature, true, cip22)
 		if err != nil {
@@ -252,7 +299,7 @@ func TestAggregateSignaturesErrors(t *testing.T) {
 	defer privateKey.Destroy()
 	message := []byte("test")
 	extraData := []byte("extra")
-	for _, cip22 := range []bool{ false, true } {
+	for _, cip22 := range []bool{false, true} {
 		signature, _ := privateKey.SignMessage(message, extraData, true, cip22)
 
 		_, err := AggregateSignatures([]*Signature{signature, nil})
@@ -277,7 +324,7 @@ func TestEncodeErrors(t *testing.T) {
 	if err != EmptySliceError {
 		t.Fatalf("should have been an empty slice")
 	}
-	_, _, err = EncodeEpochToBytesCIP22(0, 5, EpochEntropy{}, EpochEntropy{}, 0,2, nil)
+	_, _, err = EncodeEpochToBytesCIP22(0, 5, EpochEntropy{}, EpochEntropy{}, 0, 2, nil)
 	if err != EmptySliceError {
 		t.Fatalf("should have been an empty slice")
 	}
@@ -302,7 +349,7 @@ func TestVerifySignatureErrors(t *testing.T) {
 	publicKey, _ := privateKey.ToPublic()
 	message := []byte("test")
 	extraData := []byte("extra")
-	for _, cip22 := range []bool{ false, true } {
+	for _, cip22 := range []bool{false, true} {
 		err := publicKey.VerifySignature(message, extraData, nil, false, cip22)
 		if err != NilPointerError {
 			t.Fatalf("should have been a nil pointer")

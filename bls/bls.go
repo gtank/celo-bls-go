@@ -378,6 +378,57 @@ func BatchVerifyEpochs(signedHeaders []*SignedBlockHeader, shouldUseCompositeHas
 	return nil
 }
 
+// BatchVerifyStrict verifies a group of signatures over a message. Unlike aggregated verification, it guarantees that each signer submitted a valid signature.
+func BatchVerifyStrict(message []byte, extraData []byte, publicKeys []*PublicKey, signatures []*Signature, shouldUseCompositeHasher, shouldUseCIP22 bool) error {
+	messagePtr, messageLen := sliceToPtr(message)
+	extraDataPtr, extraDataLen := sliceToPtr(extraData)
+
+	if len(publicKeys) == 0 {
+		return EmptySliceError
+	}
+
+	publicKeysPtrs := []*C.struct_PublicKey{}
+	for _, pk := range publicKeys {
+		if pk == nil {
+			return NilPointerError
+		}
+		publicKeysPtrs = append(publicKeysPtrs, pk.ptr)
+	}
+
+	if len(signatures) == 0 {
+		return EmptySliceError
+	}
+
+	signaturesPtrs := []*C.struct_Signature{}
+	for _, sig := range signatures {
+		if sig == nil {
+			return NilPointerError
+		}
+		signaturesPtrs = append(signaturesPtrs, sig.ptr)
+	}
+
+	var verified C.bool
+
+	success := C.batch_verify_strict(
+		(**C.struct_PublicKey)(unsafe.Pointer(&publicKeysPtrs[0])), C.int(len(publicKeysPtrs)),
+		messagePtr, messageLen,
+		extraDataPtr, extraDataLen,
+		(**C.struct_Signature)(unsafe.Pointer(&signaturesPtrs[0])), C.int(len(signaturesPtrs)),
+		C.bool(shouldUseCompositeHasher), C.bool(shouldUseCIP22),
+		&verified,
+	)
+
+	if !success {
+		return GeneralError
+	}
+
+	if !verified {
+		return NotVerifiedError
+	}
+
+	return nil
+}
+
 func (self *PublicKey) VerifySignature(message []byte, extraData []byte, signature *Signature, shouldUseCompositeHasher, shouldUseCIP22 bool) error {
 	var verified C.bool
 

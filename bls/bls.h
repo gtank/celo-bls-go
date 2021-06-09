@@ -1,60 +1,93 @@
-#include <cstdarg>
-#include <cstdint>
-#include <cstdlib>
-#include <ostream>
-#include <new>
+#include <stdarg.h>
+#include <stdbool.h>
+#include <stdint.h>
+#include <stdlib.h>
 
-using PrivateKey = PrivateKey;
+typedef struct PrivateKey PrivateKey;
 
-using PublicKey = PublicKey;
+typedef struct PublicKey PublicKey;
 
-using Signature = Signature;
+typedef struct Signature Signature;
 
-/// Data structure which is used to store buffers of varying length
-struct Buffer {
-  /// Pointer to the message
+/**
+ * Data structure which is used to store buffers of varying length
+ */
+typedef struct Buffer {
+  /**
+   * Pointer to the message
+   */
   const uint8_t *ptr;
-  /// The length of the buffer
-  uintptr_t len;
-};
+  /**
+   * The length of the buffer
+   */
+  int len;
+} Buffer;
 
-/// Pointers to the necessary data for signature verification of an epoch
-struct MessageFFI {
-  /// Pointer to the data which was signed
-  Buffer data;
-  /// Pointer to the extra data which was signed alongside the `data`
-  Buffer extra;
-  /// Pointer to the aggregate public key of the epoch which signed the data/extra pair
+/**
+ * Pointers to the necessary data for signature verification of an epoch
+ */
+typedef struct MessageFFI {
+  /**
+   * Pointer to the data which was signed
+   */
+  struct Buffer data;
+  /**
+   * Pointer to the extra data which was signed alongside the `data`
+   */
+  struct Buffer extra;
+  /**
+   * Pointer to the aggregate public key of the epoch which signed the data/extra pair
+   */
   const PublicKey *public_key;
-  /// Pointer to the aggregate signature corresponding the aggregate public key
+  /**
+   * Pointer to the aggregate signature corresponding the aggregate public key
+   */
   const Signature *sig;
-};
+} MessageFFI;
 
-/// Data structure received from consumers of the FFI interface describing
-/// an epoch block.
-struct EpochBlockFFI {
-  /// The epoch's index
+/**
+ * Data structure received from consumers of the FFI interface describing
+ * an epoch block.
+ */
+typedef struct EpochBlockFFI {
+  /**
+   * The epoch's index
+   */
   uint16_t index;
-  /// The round number from consensus
+  /**
+   * The round number from consensus
+   */
   uint8_t round;
-  /// The epoch's entropy value, derived from the epoch block hash.
+  /**
+   * The epoch's entropy value, derived from the epoch block hash.
+   */
   const uint8_t *epoch_entropy;
-  /// The parent epoch's entropy value.
+  /**
+   * The parent epoch's entropy value.
+   */
   const uint8_t *parent_entropy;
-  /// Pointer to the public keys array
+  /**
+   * Pointer to the public keys array
+   */
   const uint8_t *pubkeys;
-  /// The number of public keys to be read from the pointer
+  /**
+   * The number of public keys to be read from the pointer
+   */
   uintptr_t pubkeys_num;
-  /// Maximum number of non signers for that epoch
+  /**
+   * Maximum number of non signers for that epoch
+   */
   uint32_t maximum_non_signers;
-  /// Maximum number of validators
+  /**
+   * Maximum number of validators
+   */
   uintptr_t maximum_validators;
-};
+} EpochBlockFFI;
 
-extern "C" {
-
-/// Initializes the lazily evaluated hashers.
-void init();
+/**
+ * Initializes the lazily evaluated hashers.
+ */
+void init(void);
 
 bool deserialize_private_key(const uint8_t *in_private_key_bytes,
                              int in_private_key_bytes_len,
@@ -92,29 +125,39 @@ bool compress_pubkey(const uint8_t *in_pubkey,
                      uint8_t **out_pubkey,
                      int *out_len);
 
-/// # Safety
-///
-/// This function must only be called on a valid PrivateKey instance pointer.
+/**
+ * # Safety
+ *
+ * This function must only be called on a valid PrivateKey instance pointer.
+ */
 bool destroy_private_key(PrivateKey *private_key);
 
-/// # Safety
-///
-/// This function must only be called on a valid vector pointer.
+/**
+ * # Safety
+ *
+ * This function must only be called on a valid vector pointer.
+ */
 bool free_vec(uint8_t *bytes, int len);
 
-/// # Safety
-///
-/// This function must only be called on a valid PublicKey instance pointer.
+/**
+ * # Safety
+ *
+ * This function must only be called on a valid PublicKey instance pointer.
+ */
 bool destroy_public_key(PublicKey *public_key);
 
-/// # Safety
-///
-/// This function must only be called on a valid Signature instance pointer.
+/**
+ * # Safety
+ *
+ * This function must only be called on a valid Signature instance pointer.
+ */
 bool destroy_signature(Signature *signature);
 
-/// # Safety
-///
-/// out_private_key must initialized to memory that can contain a pointer.
+/**
+ * # Safety
+ *
+ * out_private_key must initialized to memory that can contain a pointer.
+ */
 bool generate_private_key(PrivateKey **out_private_key);
 
 bool private_key_to_public_key(const PrivateKey *in_private_key, PublicKey **out_public_key);
@@ -170,37 +213,41 @@ bool verify_signature(const PublicKey *in_public_key,
                       bool should_use_cip22,
                       bool *out_verified);
 
-/// Receives a list of messages composed of:
-/// 1. the data
-/// 1. the public keys which signed on the data
-/// 1. the signature produced by the public keys
-///
-/// It will batch verify the signatures in the sense of [0] section 5.1 using deterministic random exponents.
-/// The exponents are tuned to accomodate 128-bit security for the size of the batch.
-bool batch_verify_strict(const PublicKey *in_public_keys,
+/**
+ * Receives a list of messages composed of:
+ * 1. the data
+ * 1. the public keys which signed on the data
+ * 1. the signature produced by the public keys
+ *
+ * It will batch verify the signatures in the sense of [0] section 5.1 using deterministic random exponents.
+ * The exponents are tuned to accomodate 128-bit security for the size of the batch.
+ */
+bool batch_verify_strict(const PublicKey *const *in_public_keys,
                          int in_public_key_count,
                          const uint8_t *in_message,
                          int in_message_len,
                          const uint8_t *in_extra_data,
                          int in_extra_data_len,
-                         const Signature *in_signatures,
+                         const Signature *const *in_signatures,
                          int in_signature_count,
                          bool should_use_composite,
                          bool should_use_cip22,
                          bool *out_verified);
 
-/// Receives a list of messages composed of:
-/// 1. the data
-/// 1. the public keys which signed on the data
-/// 1. the signature produced by the public keys
-///
-/// It will create the aggregate signature from all messages and execute batch
-/// verification against each (data, publickey) pair. Internally calls `Signature::batch_verify`
-///
-/// The verification equation can be found in pg.11 from
-/// https://eprint.iacr.org/2018/483.pdf: "Batch verification"
-bool batch_verify_signature(const MessageFFI *messages_ptr,
-                            uintptr_t messages_len,
+/**
+ * Receives a list of messages composed of:
+ * 1. the data
+ * 1. the public keys which signed on the data
+ * 1. the signature produced by the public keys
+ *
+ * It will create the aggregate signature from all messages and execute batch
+ * verification against each (data, publickey) pair. Internally calls `Signature::batch_verify`
+ *
+ * The verification equation can be found in pg.11 from
+ * https://eprint.iacr.org/2018/483.pdf: "Batch verification"
+ */
+bool batch_verify_signature(const struct MessageFFI *messages_ptr,
+                            int messages_len,
                             bool should_use_composite,
                             bool should_use_cip22,
                             bool *verified);
@@ -224,23 +271,25 @@ bool aggregate_signatures(const Signature *const *in_signatures,
                           int in_signatures_len,
                           Signature **out_signature);
 
-/// Verifies a Groth16 proof about the validity of the epoch transitions
-/// between the provided `first_epoch` and `last_epoch` blocks.
-///
-/// All elements are assumed to be sent as serialized byte arrays
-/// of **compressed elements**. There are no assumptions made about
-/// the length of the verifying key or the proof, so that must be
-/// provided by the caller.
-///
-/// # Safety
-/// 1. VK and Proof must be valid pointers
-/// 1. The vector of pubkeys inside EpochBlockFFI must point to valid memory
+/**
+ * Verifies a Groth16 proof about the validity of the epoch transitions
+ * between the provided `first_epoch` and `last_epoch` blocks.
+ *
+ * All elements are assumed to be sent as serialized byte arrays
+ * of **compressed elements**. There are no assumptions made about
+ * the length of the verifying key or the proof, so that must be
+ * provided by the caller.
+ *
+ * # Safety
+ * 1. VK and Proof must be valid pointers
+ * 1. The vector of pubkeys inside EpochBlockFFI must point to valid memory
+ */
 bool verify(const uint8_t *vk,
             uint32_t vk_len,
             const uint8_t *proof,
             uint32_t proof_len,
-            EpochBlockFFI first_epoch,
-            EpochBlockFFI last_epoch);
+            struct EpochBlockFFI first_epoch,
+            struct EpochBlockFFI last_epoch);
 
 bool encode_epoch_block_to_bytes_cip22(unsigned short in_epoch_index,
                                        unsigned char in_round_number,
@@ -261,5 +310,3 @@ bool encode_epoch_block_to_bytes(unsigned short in_epoch_index,
                                  int in_added_public_keys_len,
                                  uint8_t **out_bytes,
                                  int *out_len);
-
-} // extern "C"
