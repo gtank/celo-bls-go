@@ -7,8 +7,16 @@ import (
 	"testing"
 )
 
-func generateTestData(numEpochs int, numValidators int, composite, cip22 bool) []*SignedBlockHeader {
+type BatchTestVector struct {
+	pk             []*PublicKey
+	sig            []*Signature
+	message, extra []byte
+}
+
+func generateTestData(numEpochs int, numValidators int, composite, cip22 bool) ([]*SignedBlockHeader, []*BatchTestVector) {
 	var headers []*SignedBlockHeader
+	var batches []*BatchTestVector
+
 	for i := 0; i < numEpochs; i++ {
 		message := []byte(fmt.Sprintf("msg_%d", i))
 		extraData := []byte(fmt.Sprintf("extra_%d", i))
@@ -38,15 +46,23 @@ func generateTestData(numEpochs int, numValidators int, composite, cip22 bool) [
 			Sig:    epoch_asig,
 		}
 		headers = append(headers, header)
+
+		batch := &BatchTestVector{
+			message: message,
+			extra:   extraData,
+			pk:      epoch_pubkeys,
+			sig:     epoch_sigs,
+		}
+		batches = append(batches, batch)
 	}
 
-	return headers
+	return headers, batches
 }
 
 func BenchmarkBlsBatch(b *testing.B) {
 	composite := false
 	cip22 := false
-	headers := generateTestData(10, 10, composite, cip22)
+	headers, batches := generateTestData(10, 10, composite, cip22)
 
 	b.Run("individual", func(b *testing.B) {
 		for n := 0; n < b.N; n++ {
@@ -59,11 +75,22 @@ func BenchmarkBlsBatch(b *testing.B) {
 		}
 	})
 
-	b.Run("batched", func(b *testing.B) {
+	b.Run("aggregate_headers", func(b *testing.B) {
 		for n := 0; n < b.N; n++ {
 			err := BatchVerifyEpochs(headers, composite, cip22)
 			if err != nil {
 				panic("sig verification should not fail")
+			}
+		}
+	})
+
+	b.Run("batched_strict", func(b *testing.B) {
+		for n := 0; n < b.N; n++ {
+			for _, batch := range batches {
+				err := BatchVerifyStrict(batch.message, batch.extra, batch.pk, batch.sig, composite, cip22)
+				if err != nil {
+					b.Fatal("signature verification should not fail")
+				}
 			}
 		}
 	})
@@ -79,7 +106,7 @@ func TestBatchVerify(t *testing.T) {
 }
 
 func testBatchVerify(t *testing.T, composite, cip22 bool) {
-	msgs := generateTestData(10, 7, composite, cip22)
+	msgs, _ := generateTestData(10, 7, composite, cip22)
 
 	err := BatchVerifyEpochs(msgs, composite, cip22)
 	if err != nil {
