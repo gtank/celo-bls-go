@@ -8,8 +8,8 @@ import (
 )
 
 type BatchTestVector struct {
-	pk             []*PublicKey
-	sig            []*Signature
+	pubkeys        []*PublicKey
+	sigs           []*Signature
 	message, extra []byte
 }
 
@@ -50,8 +50,8 @@ func generateTestData(numEpochs int, numValidators int, composite, cip22 bool) (
 		batch := &BatchTestVector{
 			message: message,
 			extra:   extraData,
-			pk:      epoch_pubkeys,
-			sig:     epoch_sigs,
+			pubkeys: epoch_pubkeys,
+			sigs:    epoch_sigs,
 		}
 		batches = append(batches, batch)
 	}
@@ -62,11 +62,21 @@ func generateTestData(numEpochs int, numValidators int, composite, cip22 bool) (
 func BenchmarkBlsBatch(b *testing.B) {
 	composite := false
 	cip22 := false
-	headers, batches := generateTestData(10, 10, composite, cip22)
+	_, batches := generateTestData(10, 10, composite, cip22)
 
 	b.Run("individual", func(b *testing.B) {
 		for n := 0; n < b.N; n++ {
-			for _, h := range headers {
+			for _, batch := range batches {
+				epoch_asig, _ := AggregateSignatures(batch.sigs)
+				epoch_apubkey, _ := AggregatePublicKeys(batch.pubkeys)
+
+				h := &SignedBlockHeader{
+					Data:   batch.message,
+					Extra:  batch.extra,
+					Pubkey: epoch_apubkey,
+					Sig:    epoch_asig,
+				}
+
 				err := h.Pubkey.VerifySignature(h.Data, h.Extra, h.Sig, composite, cip22)
 				if err != nil {
 					panic("sig verification should not fail")
@@ -77,6 +87,20 @@ func BenchmarkBlsBatch(b *testing.B) {
 
 	b.Run("aggregate_headers", func(b *testing.B) {
 		for n := 0; n < b.N; n++ {
+			var headers []*SignedBlockHeader
+			for _, batch := range batches {
+				epoch_asig, _ := AggregateSignatures(batch.sigs)
+				epoch_apubkey, _ := AggregatePublicKeys(batch.pubkeys)
+
+				header := &SignedBlockHeader{
+					Data:   batch.message,
+					Extra:  batch.extra,
+					Pubkey: epoch_apubkey,
+					Sig:    epoch_asig,
+				}
+				headers = append(headers, header)
+			}
+
 			err := BatchVerifyEpochs(headers, composite, cip22)
 			if err != nil {
 				panic("sig verification should not fail")
@@ -87,7 +111,7 @@ func BenchmarkBlsBatch(b *testing.B) {
 	b.Run("batched_strict", func(b *testing.B) {
 		for n := 0; n < b.N; n++ {
 			for _, batch := range batches {
-				err := BatchVerifyStrict(batch.message, batch.extra, batch.pk, batch.sig, composite, cip22)
+				err := BatchVerifyStrict(batch.message, batch.extra, batch.pubkeys, batch.sigs, composite, cip22)
 				if err != nil {
 					b.Fatal("signature verification should not fail")
 				}
