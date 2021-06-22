@@ -7,15 +7,15 @@ import (
 	"testing"
 )
 
-type BatchTestVector struct {
+type batchTestVector struct {
 	pubkeys        []*PublicKey
 	sigs           []*Signature
 	message, extra []byte
 }
 
-func generateTestData(numEpochs int, numValidators int, composite, cip22 bool) ([]*SignedBlockHeader, []*BatchTestVector) {
+func generateTestData(numEpochs int, numValidators int, composite, cip22 bool) ([]*SignedBlockHeader, []*batchTestVector) {
 	var headers []*SignedBlockHeader
-	var batches []*BatchTestVector
+	var batches []*batchTestVector
 
 	for i := 0; i < numEpochs; i++ {
 		message := []byte(fmt.Sprintf("msg_%d", i))
@@ -47,7 +47,7 @@ func generateTestData(numEpochs int, numValidators int, composite, cip22 bool) (
 		}
 		headers = append(headers, header)
 
-		batch := &BatchTestVector{
+		batch := &batchTestVector{
 			message: message,
 			extra:   extraData,
 			pubkeys: epoch_pubkeys,
