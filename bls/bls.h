@@ -26,6 +26,30 @@ typedef struct Buffer {
 /**
  * Pointers to the necessary data for signature verification of an epoch
  */
+typedef struct BatchMessageFFI {
+  /**
+   * Pointer to the data which was signed
+   */
+  struct Buffer data;
+  /**
+   * Pointer to the extra data which was signed alongside the `data`
+   */
+  struct Buffer extra;
+  /**
+   * Pointers to the public keys of the epoch which signed the data/extra pair
+   */
+  const PublicKey *const *public_keys;
+  int public_keys_len;
+  /**
+   * Pointers to the signatures corresponding the public keys
+   */
+  const Signature *const *signatures;
+  int signatures_len;
+} BatchMessageFFI;
+
+/**
+ * Pointers to the necessary data for signature verification of an epoch
+ */
 typedef struct MessageFFI {
   /**
    * Pointer to the data which was signed
@@ -73,7 +97,7 @@ typedef struct EpochBlockFFI {
   /**
    * The number of public keys to be read from the pointer
    */
-  uintptr_t pubkeys_num;
+  int pubkeys_num;
   /**
    * Maximum number of non signers for that epoch
    */
@@ -81,7 +105,7 @@ typedef struct EpochBlockFFI {
   /**
    * Maximum number of validators
    */
-  uintptr_t maximum_validators;
+  int maximum_validators;
 } EpochBlockFFI;
 
 /**
@@ -214,25 +238,20 @@ bool verify_signature(const PublicKey *in_public_key,
                       bool *out_verified);
 
 /**
- * Receives a list of messages composed of:
+ * Receives a list of epoch batches composed of:
  * 1. the data
  * 1. the public keys which signed on the data
  * 1. the signature produced by the public keys
  *
  * It will batch verify the signatures in the sense of [0] section 5.1 using deterministic random exponents.
- * The exponents are tuned to accomodate 128-bit security for the size of the batch.
+ * The exponents are tuned to accomodate 128-bit security for the size of each batch.
+ * The return value is true if all batches verified successfully and false if not. The specific batch results are returned in the out_result vector of booleans.
  */
-bool batch_verify_strict(const PublicKey *const *in_public_keys,
-                         int in_public_key_count,
-                         const uint8_t *in_message,
-                         int in_message_len,
-                         const uint8_t *in_extra_data,
-                         int in_extra_data_len,
-                         const Signature *const *in_signatures,
-                         int in_signature_count,
+bool batch_verify_strict(const struct BatchMessageFFI *in_batches_ptr,
+                         int in_batches_len,
                          bool should_use_composite,
                          bool should_use_cip22,
-                         bool *out_verified);
+                         bool *out_results);
 
 /**
  * Receives a list of messages composed of:

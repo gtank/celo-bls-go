@@ -84,6 +84,14 @@ type SignedBlockHeader struct {
 	Sig *Signature
 }
 
+type BatchSignatureContainer struct {
+	Data  []byte
+	Extra []byte
+
+	Pubkeys []*PublicKey
+	Sigs    []*Signature
+}
+
 // EpochEntropy is a string of unprediactable bytes included in the epoch SNARK data
 // to make prediction of future epoch message values infeasible.
 type EpochEntropy [EPOCHENTROPYBYTES]byte
@@ -379,54 +387,71 @@ func BatchVerifyEpochs(signedHeaders []*SignedBlockHeader, shouldUseCompositeHas
 }
 
 // BatchVerifyStrict verifies a group of signatures over a message. Unlike aggregated verification, it guarantees that each signer submitted a valid signature.
-func BatchVerifyStrict(message []byte, extraData []byte, publicKeys []*PublicKey, signatures []*Signature, shouldUseCompositeHasher, shouldUseCIP22 bool) error {
-	messagePtr, messageLen := sliceToPtr(message)
-	extraDataPtr, extraDataLen := sliceToPtr(extraData)
+// It returns a nil error if all verifications were successful. If there is an error, then the bool slice contains the individual results of each batch.
+func BatchVerifyStrict(batches []*BatchSignatureContainer, shouldUseCompositeHasher, shouldUseCIP22 bool) ([]bool, error) {
+	var overallResult C.bool
 
-	if len(publicKeys) == 0 {
-		return EmptySliceError
-	}
+	batchCount := len(batches)
+	cResults := make([]C.bool, batchCount)
 
-	publicKeysPtrs := []*C.struct_PublicKey{}
-	for _, pk := range publicKeys {
-		if pk == nil {
-			return NilPointerError
+	// Allocate a contiguous slice of memory for the pointers
+	// NB: `make([]*C.MessageFFI, msg_len) results in `cgo argument has Go pointer to Go pointer`
+	size := int(unsafe.Sizeof(C.BatchMessageFFI{}))
+	messages_ptr := C.malloc(C.size_t(size * batchCount))
+	defer C.free(messages_ptr)
+
+	// Put our data in the format the library expects
+	for i := 0; i < batchCount; i++ {
+		// convert the slices to pointers
+		data := toBuffer(batches[i].Data)
+		extra := toBuffer(batches[i].Extra)
+
+		publicKeysPtrs := []*C.struct_PublicKey{}
+		for _, pk := range batches[i].Pubkeys {
+			if pk == nil {
+				continue
+			}
+			publicKeysPtrs = append(publicKeysPtrs, pk.ptr)
 		}
-		publicKeysPtrs = append(publicKeysPtrs, pk.ptr)
-	}
 
-	if len(signatures) == 0 {
-		return EmptySliceError
-	}
-
-	signaturesPtrs := []*C.struct_Signature{}
-	for _, sig := range signatures {
-		if sig == nil {
-			return NilPointerError
+		signaturesPtrs := []*C.struct_Signature{}
+		for _, sig := range batches[i].Sigs {
+			if sig == nil {
+				continue
+			}
+			signaturesPtrs = append(signaturesPtrs, sig.ptr)
 		}
-		signaturesPtrs = append(signaturesPtrs, sig.ptr)
+
+		// Get messages_ptr[i] (need to offset by i*size to take into account the size of C.MessageFFI)
+		msg := (*C.BatchMessageFFI)(unsafe.Pointer(uintptr(messages_ptr) + uintptr(size*i)))
+		// ...and write to it
+		*msg = C.BatchMessageFFI{
+			data:            data,
+			extra:           extra,
+			public_keys:     (**C.struct_PublicKey)(unsafe.Pointer(&publicKeysPtrs[0])),
+			public_keys_len: C.int(len(publicKeysPtrs)),
+			signatures:      (**C.struct_Signature)(unsafe.Pointer(&signaturesPtrs[0])),
+			signatures_len:  C.int(len(signaturesPtrs)),
+		}
 	}
 
-	var verified C.bool
-
-	success := C.batch_verify_strict(
-		(**C.struct_PublicKey)(unsafe.Pointer(&publicKeysPtrs[0])), C.int(len(publicKeysPtrs)),
-		messagePtr, messageLen,
-		extraDataPtr, extraDataLen,
-		(**C.struct_Signature)(unsafe.Pointer(&signaturesPtrs[0])), C.int(len(signaturesPtrs)),
-		C.bool(shouldUseCompositeHasher), C.bool(shouldUseCIP22),
-		&verified,
+	overallResult = C.batch_verify_strict(
+		(*C.BatchMessageFFI)(messages_ptr),
+		C.int(batchCount),
+		C.bool(shouldUseCompositeHasher),
+		C.bool(shouldUseCIP22),
+		(*C.bool)(unsafe.Pointer(&cResults[0])),
 	)
 
-	if !success {
-		return GeneralError
+	if !overallResult {
+		outResults := make([]bool, len(cResults))
+		for i := 0; i < len(cResults); i++ {
+			outResults[i] = bool(cResults[i])
+		}
+		return outResults, NotVerifiedError
 	}
 
-	if !verified {
-		return NotVerifiedError
-	}
-
-	return nil
+	return nil, nil
 }
 
 func (self *PublicKey) VerifySignature(message []byte, extraData []byte, signature *Signature, shouldUseCompositeHasher, shouldUseCIP22 bool) error {

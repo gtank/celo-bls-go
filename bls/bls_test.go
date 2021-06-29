@@ -110,11 +110,20 @@ func BenchmarkBlsBatch(b *testing.B) {
 
 	b.Run("batched_strict", func(b *testing.B) {
 		for n := 0; n < b.N; n++ {
+			containers := make([]*BatchSignatureContainer, 0, len(batches))
 			for _, batch := range batches {
-				err := BatchVerifyStrict(batch.message, batch.extra, batch.pubkeys, batch.sigs, composite, cip22)
-				if err != nil {
-					b.Fatal("signature verification should not fail")
+				c := &BatchSignatureContainer{
+					Data:    batch.message,
+					Extra:   batch.extra,
+					Pubkeys: batch.pubkeys,
+					Sigs:    batch.sigs,
 				}
+				containers = append(containers, c)
+			}
+
+			_, err := BatchVerifyStrict(containers, composite, cip22)
+			if err != nil {
+				b.Fatal("signature verification should not fail")
 			}
 		}
 	})
@@ -138,50 +147,46 @@ func testBatchVerify(t *testing.T, composite, cip22 bool) {
 	}
 }
 
-func TestStrictBatchVerify(t *testing.T) {
+func TestBatchVerifyStrict(t *testing.T) {
 	InitBLSCrypto()
-	batchSize := 10
 
-	message := []byte("message")
-	extraData := []byte("extra data")
+	composite, cip22 := true, true
+	_, batches := generateTestData(10, 10, composite, cip22)
 
-	publicKeys := make([]*PublicKey, batchSize)
-	signatures := make([]*Signature, batchSize)
-
-	for i := 0; i < batchSize; i++ {
-		sk, err := GeneratePrivateKey()
-		if err != nil {
-			t.Fatal(err)
+	// TODO: awkward type problems here
+	containers := make([]*BatchSignatureContainer, 0, 10)
+	for _, batch := range batches {
+		c := &BatchSignatureContainer{
+			Data:    batch.message,
+			Extra:   batch.extra,
+			Pubkeys: batch.pubkeys,
+			Sigs:    batch.sigs,
 		}
-		defer sk.Destroy()
-
-		sig, err := sk.SignMessage(message, extraData, true, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		signatures[i] = sig
-
-		pk, _ := sk.ToPublic()
-		publicKeys[i] = pk
+		containers = append(containers, c)
 	}
 
-	result := BatchVerifyStrict(message, extraData, publicKeys, signatures, true, true)
+	results, err := BatchVerifyStrict(containers, composite, cip22)
 
-	if result != nil {
-		t.Errorf("Batch verification failed: %v", result)
+	if err != nil {
+		t.Errorf("Batch verification failed: %v", results)
 	}
 
 	wrongMsgKey, _ := GeneratePrivateKey()
 	defer wrongMsgKey.Destroy()
 	wrongMsgPublic, _ := wrongMsgKey.ToPublic()
-	wrongMsgSig, _ := wrongMsgKey.SignMessage([]byte("wrong message"), extraData, true, true)
-	publicKeys = append(publicKeys, wrongMsgPublic)
-	signatures = append(signatures, wrongMsgSig)
+	wrongMsgSig, _ := wrongMsgKey.SignMessage([]byte("valid sig on wrong message"), batches[0].extra, composite, cip22)
 
-	result = BatchVerifyStrict(message, extraData, publicKeys, signatures, true, true)
+	containers[0].Pubkeys = append(containers[0].Pubkeys, wrongMsgPublic)
+	containers[0].Sigs = append(containers[0].Sigs, wrongMsgSig)
 
-	if result == nil {
-		t.Error("Batch verification succeeded when it should have failed")
+	results, err = BatchVerifyStrict(containers, composite, cip22)
+
+	if err == nil {
+		t.Fatalf("Batch verification succeeded when it should have failed: %v", results)
+	}
+
+	if results[0] != false {
+		t.Errorf("Wrong individual results: %v", results)
 	}
 }
 
