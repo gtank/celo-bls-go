@@ -1,5 +1,5 @@
 
 [submodule "celo-bls-snark-rs"]
 	path = celo-bls-snark-rs
-	url = /Users/gtank/Projects/celo-bls-snark-rs
-	branch = gtank/batch_verify_small_exponents
+	url = https://github.com/gtank/celo-bls-snark-rs
+	branch = gtank/batch_verify_strict
